@@ -1,35 +1,113 @@
-local storage = minetest.get_mod_storage()
-local function genlist()
-    local fspec = "size[9,2.5]dropdown[0,0.1;5.3,1;list;"..storage:get_string('list').." ;]button_exit[5,0;2,1;load;Teleport]field[0.3,2;5,1;name;Name:;]button_exit[5,1.7;2,1;save;Save]button[7,0;2,1;del;Delete]button[7,1.7;2,1;delall;Clear list]"
-    return fspec
+local s = core.get_mod_storage()
+local F = core.formspec_escape
+local selected = 1
+local list = {}
+local wps = {}
+
+local function addwp(name, pos)
+	if not wps[name] then
+		wps[name] = core.localplayer:hud_add({
+			hud_elem_type = "waypoint",
+			name = name,
+			number = 0xFFFF00,
+			text = " ("..pos..")",
+			world_pos = core.string_to_pos(pos)})
+	end
 end
-minetest.register_chatcommand("tpl", {
-    description = "Open TPList",
-    func = function(param)
-core.show_formspec('tplist',genlist())
+local function rmwp(name)
+	core.localplayer:hud_remove(wps[name])
+	wps[name] = nil
+end
+
+local function tpl_fs()
+	list = {}
+	local stable = s:to_table().fields
+	local list_pos = {}
+	for name,pos in pairs(stable) do
+		table.insert(list,name)
+		table.insert(list_pos,F(name)..","..F(pos)..(wps[name] and " WP" or ""))
+	end
+	table.sort(list)
+	table.sort(list_pos)
+	local privs = core.get_privilege_list()
+	local fs = "size[7,9]" ..
+		"field[0.3,0.3;5.2,1;new;;]" ..
+		"field_close_on_enter[new;false]" ..
+		"button[5.1,0;2,1;save;Save New]" ..
+		"tablecolumns[text;text]" ..
+		"table[0,1;5,8;list;"..table.concat(list_pos,",")..";]" ..
+		"button[5.1,0.9;2,1;wp;Add WayPoint]" ..
+		"button[5.1,1.7;2,1;rwp;Remove WP]" ..
+		"button[5.1,2.5;2,1;rwps;Remove all WPs]" ..
+		(privs.teleport and "button[5.1,3.3;2,1;tp;Teleport]" or "") ..
+		"button[5.1,7;2,1;rm;Remove]" ..
+		"button[5.1,8.2;2,1;purge;Purge list]"
+	core.show_formspec("tplist",fs)
+end
+core.register_chatcommand("tpl", {
+  description = "Open TPList",
+  func = function(param)
+	tpl_fs()
 end})
 
 core.register_on_inventory_open(function(inventory)
-if core.localplayer:get_control().aux1 and core.localplayer:get_control().sneak then
-    core.show_formspec('tplist',genlist())
-end
+	local ctrl = core.localplayer:get_control()
+	if ctrl and ctrl.aux1 and ctrl.sneak then
+		core.after(0,function()
+			tpl_fs()
+		end)
+	end
 end)
 
 core.register_on_formspec_input(function(formname, fields)
-	if formname == "tplist" then
-      local pos = core.pos_to_string(vector.round(core.localplayer:get_pos())):gsub('[()]','')
-        if fields.name then fields.name = fields.name:gsub('[;%]%[%%%%-%+%?%(%)]','') end --glitch protection!
-		if fields.save then
-            storage:set_string('list',storage:get_string('list')..fields.name..' at '..core.formspec_escape(pos)..',')
-            minetest.display_chat_message('Saved "'..minetest.colorize('#FF0',fields.name)..'" at '..minetest.colorize('#FF0',pos))
-        elseif fields.del then
-            storage:set_string('list',storage:get_string('list'):gsub(core.formspec_escape(fields.list):gsub('([^%w])','%%%1')..',',''))
-            core.show_formspec('tplist',genlist())
-        elseif fields.delall then
-            storage:set_string('list',nil)
-            core.show_formspec('tplist',genlist())
-        elseif fields.load then
-             core.run_server_chatcommand('teleport',fields.list:gsub('.+at ',''))
+	if formname ~= "tplist" then return end
+	if fields.list then
+		local evnt = core.explode_table_event(fields.list)
+		selected = tonumber(evnt.row) or 1
 	end
+	if fields.save and fields.new and fields.new ~= "" then
+		local pos = core.localplayer:get_pos()
+		if pos then
+			s:set_string(fields.new, core.pos_to_string(vector.round(pos)):gsub("[%(%)]",""))
+		end
 	end
+	if fields.rm and list[selected] then
+		s:set_string(list[selected],"")
+		if wps[list[selected]] then
+			rmwp(list[selected])
+		end
+	end
+	if fields.purge then
+		local stable = s:to_table().fields
+		for name,pos in pairs(stable) do
+			s:set_string(name,"")
+		end
+		if wps ~= {} then
+			for name,id in pairs(wps) do
+				if id then
+					core.localplayer:hud_remove(id)
+					wps[name] = nil
+				end
+			end
+		end
+	end
+	if fields.tp and list[selected] then
+		core.run_server_chatcommand("teleport",s:get_string(list[selected]))
+	end
+	if fields.wp and list[selected] then
+		local pos = s:get_string(list[selected])
+		addwp(list[selected],pos)
+	end
+	if fields.rwp and wps[list[selected]] then
+		rmwp(list[selected])
+	end
+	if fields.rwps and wps ~= {} then
+		for name,id in pairs(wps) do
+			if id then
+				core.localplayer:hud_remove(id)
+				wps[name] = nil
+			end
+		end
+	end
+	tpl_fs()
 end)
