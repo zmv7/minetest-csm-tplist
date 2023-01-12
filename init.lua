@@ -4,14 +4,14 @@ local selected = 1
 local list = {}
 local wps = {}
 
-local function addwp(name, pos)
+local function addwp(name, strpos)
 	if not wps[name] then
 		wps[name] = core.localplayer:hud_add({
 			hud_elem_type = "waypoint",
 			name = name,
 			number = 0xFFFF00,
-			text = " ("..pos..")",
-			world_pos = core.string_to_pos(pos)})
+			text = " ("..strpos..")",
+			world_pos = core.string_to_pos(strpos)})
 	end
 end
 local function rmwp(name)
@@ -23,18 +23,18 @@ local function tpl_fs()
 	list = {}
 	local stable = s:to_table().fields
 	local list_pos = {}
-	for name,pos in pairs(stable) do
+	for name,strpos in pairs(stable) do
 		table.insert(list,name)
-		table.insert(list_pos,F(name)..","..F(pos)..(wps[name] and " WP" or ""))
+		table.insert(list_pos,F(name)..","..F(strpos)..(wps[name] and ", WP" or ","))
 	end
 	table.sort(list)
 	table.sort(list_pos)
 	local privs = core.get_privilege_list()
 	local fs = "size[7,9]" ..
-		"field[0.3,0.3;5.2,1;new;;]" ..
-		"field_close_on_enter[new;false]" ..
-		"button[5.1,0;2,1;save;Save New]" ..
-		"tablecolumns[text;text]" ..
+		"field[0.3,0.4;3.9,1;new;Name;]" ..
+		"field[4,0.4;2.4,1;pos;pos (x y z);]" ..
+		"button[5.9,0.1;1.2,1;save;Save]" ..
+		"tablecolumns[text;text;text]" ..
 		"table[0,1;5,8;list;"..table.concat(list_pos,",")..";]" ..
 		"button[5.1,0.9;2,1;wp;Add WayPoint]" ..
 		"button[5.1,1.7;2,1;rwp;Remove WP]" ..
@@ -66,9 +66,18 @@ core.register_on_formspec_input(function(formname, fields)
 		selected = tonumber(evnt.row) or 1
 	end
 	if fields.save and fields.new and fields.new ~= "" then
-		local pos = core.localplayer:get_pos()
-		if pos then
-			s:set_string(fields.new, core.pos_to_string(vector.round(pos)):gsub("[%(%)]",""))
+		local ppos = vector.round(core.localplayer:get_pos())
+		local strpos = ppos.x.." "..ppos.y.." "..ppos.z
+		if fields.pos and fields.pos ~= "" then
+			local check = core.string_to_pos(fields.pos)
+			if not check then
+				core.display_chat_message("Invalid pos")
+				return
+			end
+			strpos = fields.pos
+		end
+		if strpos then
+			s:set_string(fields.new, strpos)
 		end
 	end
 	if fields.rm and list[selected] then
@@ -79,7 +88,7 @@ core.register_on_formspec_input(function(formname, fields)
 	end
 	if fields.purge then
 		local stable = s:to_table().fields
-		for name,pos in pairs(stable) do
+		for name,strpos in pairs(stable) do
 			s:set_string(name,"")
 		end
 		if wps ~= {} then
@@ -95,8 +104,8 @@ core.register_on_formspec_input(function(formname, fields)
 		core.run_server_chatcommand("teleport",s:get_string(list[selected]))
 	end
 	if fields.wp and list[selected] then
-		local pos = s:get_string(list[selected])
-		addwp(list[selected],pos)
+		local strpos = s:get_string(list[selected])
+		addwp(list[selected],strpos)
 	end
 	if fields.rwp and wps[list[selected]] then
 		rmwp(list[selected])
